@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SOMASCAN — Interactive Body Symptom Explorer</title>
+<meta name="description" content="Rotate, zoom, and point to where it hurts. SOMASCAN is an educational 3D symptom explorer with a guided chat assistant." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Persistent medical disclaimer -->
+  <div class="disclaimer-bar" role="alert">
+    <span class="disclaimer-icon">&#9888;</span>
+    <p>SOMASCAN gives <strong>general educational information only</strong>. It cannot examine or diagnose you and is not a substitute for a licensed clinician. If this is an emergency, call your local emergency number now.</p>
+  </div>
+
+  <!-- Emergency red-flag banner, hidden until triggered -->
+  <div class="emergency-banner" id="emergencyBanner" hidden>
+    <div class="emergency-inner">
+      <span class="emergency-icon">&#9679;</span>
+      <div>
+        <strong id="emergencyTitle">This may need urgent care.</strong>
+        <p id="emergencyText"></p>
+      </div>
+      <button class="emergency-dismiss" id="emergencyDismiss" aria-label="Dismiss">&times;</button>
+    </div>
+  </div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div class="brand-text">
+        <span class="brand-name">SOMASCAN</span>
+        <span class="brand-tag">Point. Describe. Understand.</span>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn-ghost" id="toggleRotate" aria-pressed="true">
+        <span class="dot"></span> Auto-rotate
+      </button>
+      <button class="btn-ghost" id="resetView">Reset view</button>
+      <button class="btn-primary" id="toggleChat">Open assistant</button>
+    </div>
+  </header>
+
+  <main class="stage">
+
+    <!-- HUD instructions, top-left over canvas -->
+    <div class="hud hud-instructions">
+      <p><span class="key">drag</span> rotate &nbsp;·&nbsp; <span class="key">scroll</span> zoom &nbsp;·&nbsp; <span class="key">click</span> a region to report pain</p>
+    </div>
+
+    <!-- HUD readout, follows hovered part -->
+    <div class="hud hud-readout" id="hoverReadout" hidden>
+      <span class="readout-label" id="hoverLabel">—</span>
+      <span class="readout-sub">click to report</span>
+    </div>
+
+    <!-- Region log, bottom-left: parts reported so far -->
+    <div class="hud hud-log" id="regionLog" hidden>
+      <p class="hud-log-title">Reported regions</p>
+      <ul id="regionLogList"></ul>
+    </div>
+
+    <canvas id="bodyCanvas" aria-label="Interactive rotatable 3D human body model"></canvas>
+
+    <div class="loading-overlay" id="loadingOverlay">
+      <div class="loading-scan"></div>
+      <p>Calibrating model…</p>
+    </div>
+
+  </main>
+
+  <!-- Pain intake modal -->
+  <div class="modal-backdrop" id="painModalBackdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="painModalTitle">
+      <button class="modal-close" id="painModalClose" aria-label="Close">&times;</button>
+      <p class="modal-eyebrow">Region selected</p>
+      <h2 id="painModalTitle">—</h2>
+
+      <div class="field-group">
+        <label class="field-label">What does it feel like?</label>
+        <div class="chip-row" id="painTypeChips">
+          <button class="chip" data-value="sharp">Sharp</button>
+          <button class="chip" data-value="dull">Dull / aching</button>
+          <button class="chip" data-value="throbbing">Throbbing</button>
+          <button class="chip" data-value="burning">Burning</button>
+          <button class="chip" data-value="shooting">Shooting / radiating</button>
+          <button class="chip" data-value="stiff">Stiff / tight</button>
+        </div>
+      </div>
+
+      <div class="field-group field-row">
+        <div>
+          <label class="field-label">Any swelling?</label>
+          <div class="chip-row">
+            <button class="chip chip-sm" data-swell="yes">Yes</button>
+            <button class="chip chip-sm" data-swell="no">No</button>
+            <button class="chip chip-sm" data-swell="unsure">Not sure</button>
+          </div>
+        </div>
+        <div>
+          <label class="field-label">How long has this been going on?</label>
+          <select class="select" id="painDuration">
+            <option value="just_now">Just started</option>
+            <option value="hours">A few hours</option>
+            <option value="days">A few days</option>
+            <option value="weeks">Several weeks</option>
+            <option value="chronic">Months or longer</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">Intensity right now: <span id="severityValue">5</span>/10</label>
+        <input type="range" min="1" max="10" value="5" class="slider" id="severitySlider" />
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">Made worse by <span class="field-optional">(pick any)</span></label>
+        <div class="chip-row" id="triggerChips">
+          <button class="chip chip-sm" data-trigger="movement">Movement</button>
+          <button class="chip chip-sm" data-trigger="rest">Rest</button>
+          <button class="chip chip-sm" data-trigger="pressure">Pressure / touch</button>
+          <button class="chip chip-sm" data-trigger="breathing">Breathing deeply</button>
+        </div>
+      </div>
+
+      <button class="btn-primary btn-block" id="submitPain">Send to assistant</button>
+    </div>
+  </div>
+
+  <!-- Chat assistant panel -->
+  <aside class="chat-panel" id="chatPanel" hidden>
+    <div class="chat-header">
+      <div>
+        <p class="chat-title">Assistant</p>
+        <p class="chat-sub">Educational information, not a diagnosis</p>
+      </div>
+      <button class="modal-close" id="chatClose" aria-label="Close assistant">&times;</button>
+    </div>
+    <div class="chat-messages" id="chatMessages"></div>
+    <form class="chat-input-row" id="chatForm">
+      <input type="text" id="chatInput" placeholder="Describe a symptom, e.g. 'dull headache since yesterday'" autocomplete="off" />
+      <button type="submit" class="btn-primary" aria-label="Send">&#8594;</button>
+    </form>
+  </aside>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="js/symptom-data.js"></script>
+  <script type="module" src="js/three-scene.js"></script>
+  <script type="module" src="js/chatbot.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
